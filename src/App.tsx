@@ -1,4 +1,19 @@
-import { useState } from "react";
+// --- IMPORTACIONES DE REACT Y FIREBASE ---
+import { useState, useEffect } from "react";
+import { auth, db } from "./firebaseConfig"; // Importamos auth Y db
+import { onAuthStateChanged, User } from "firebase/auth"; // Importamos el "detector"
+import { Login } from "./components/Login"; // Importamos el nuevo componente Login
+import { 
+  collection, 
+  addDoc, 
+  query, 
+  onSnapshot,
+  doc,           // <--- 1. NUEVA IMPORTACIÓN
+  updateDoc,     // <--- 2. NUEVA IMPORTACIÓN
+  arrayUnion     // <--- 3. NUEVA IMPORTACIÓN
+} from "firebase/firestore";
+
+// --- IMPORTACIONES ORIGINALES DE TU APP ---
 import { ReminderCard } from "./components/ReminderCard";
 import { QuickActions } from "./components/QuickActions";
 import { TodayStats } from "./components/TodayStats";
@@ -19,7 +34,7 @@ import { Badge } from "./components/ui/badge";
 import { ImageWithFallback } from "./components/figma/ImageWithFallback";
 import {
   Bell,
-  User,
+  User as UserIcon,
   Calendar,
   ChevronRight,
   Users,
@@ -29,6 +44,8 @@ import {
 } from "lucide-react";
 import { Toaster } from "./components/ui/sonner";
 
+
+// --- TIPO DE VISTA (DE TU CÓDIGO) ---
 type ViewType =
   | "home"
   | "patient"
@@ -36,7 +53,30 @@ type ViewType =
   | "schedule"
   | "settings";
 
-export default function App() {
+// --- TIPO PARA PACIENTE (BASADO EN TUS DATOS) ---
+type Patient = {
+  id: string; // Firestore nos da el ID
+  name: string;
+  room: string;
+  condition: string;
+  age: number;
+  admissionDate: string;
+  avatar: string;
+  vitals: {
+    heartRate: string;
+    temperature: string;
+    bloodPressure: string;
+    lastUpdate: string;
+  };
+  medications: any[]; // Puedes definir un tipo Medication[]
+  notes: string;
+};
+
+
+// =================================================================
+// --- INICIO DE TU APP (RENOMBRADA A 'CareControlApp') ---
+// =================================================================
+function CareControlApp({ user }: { user: User }) {
   const [currentView, setCurrentView] =
     useState<ViewType>("home");
   const [selectedPatient, setSelectedPatient] = useState<
@@ -46,102 +86,31 @@ export default function App() {
     useState(false);
   const [isAddPatientOpen, setIsAddPatientOpen] =
     useState(false);
-  const [patients, setPatients] = useState([
-    {
-      id: "1",
-      name: "María González",
-      room: "101",
-      condition: "Estable",
-      age: 68,
-      admissionDate: "15 de Septiembre, 2024",
-      avatar:
-        "https://images.unsplash.com/photo-1559839734-2b71ea197ec2?w=150&h=150&fit=crop&crop=face",
-      vitals: {
-        heartRate: "72 bpm",
-        temperature: "36.8°C",
-        bloodPressure: "120/80",
-        lastUpdate: "10:30 AM",
-      },
-      medications: [
-        {
-          medication: "Metformina 500mg",
-          time: "08:00",
-          dosage: "1 tableta",
-          type: "taken" as const,
-          instructions: "Con el desayuno",
-        },
-        {
-          medication: "Lisinopril 10mg",
-          time: "20:00",
-          dosage: "1 tableta",
-          type: "pending" as const,
-          instructions: "Con la cena",
-        },
-      ],
-      notes:
-        "Paciente diabética con hipertensión controlada. Mostró mejoría en los últimos controles. Mantener dieta baja en sodio.",
-    },
-    {
-      id: "2",
-      name: "Carlos Rodríguez",
-      room: "205",
-      condition: "Crítico",
-      age: 75,
-      admissionDate: "20 de Septiembre, 2024",
-      vitals: {
-        heartRate: "95 bpm",
-        temperature: "37.2°C",
-        bloodPressure: "140/90",
-        lastUpdate: "11:15 AM",
-      },
-      medications: [
-        {
-          medication: "Atorvastatina 20mg",
-          time: "12:00",
-          dosage: "1 tableta",
-          type: "overdue" as const,
-          instructions: "Con la comida",
-        },
-        {
-          medication: "Aspirina 100mg",
-          time: "14:30",
-          dosage: "1 tableta",
-          type: "pending" as const,
-          instructions: "Después del almuerzo",
-        },
-      ],
-      notes:
-        "Paciente post-operatorio. Requiere monitoreo constante de signos vitales. Riesgo de complicaciones cardiovasculares.",
-    },
-    {
-      id: "3",
-      name: "Ana Martínez",
-      room: "304",
-      condition: "Moderado",
-      age: 52,
-      admissionDate: "22 de Septiembre, 2024",
-      vitals: {
-        heartRate: "78 bpm",
-        temperature: "36.5°C",
-        bloodPressure: "115/75",
-        lastUpdate: "09:45 AM",
-      },
-      medications: [
-        {
-          medication: "Vitamina D3",
-          time: "20:00",
-          dosage: "1 cápsula",
-          type: "pending" as const,
-          instructions: "Con la cena",
-        },
-      ],
-      notes:
-        "Recuperación satisfactoria. Paciente colaborativa con el tratamiento. Programar alta médica para la próxima semana.",
-    },
-  ]);
+  
+  const [patients, setPatients] = useState<Patient[]>([]);
+
+  // --- LEER PACIENTES (EN TIEMPO REAL) ---
+  useEffect(() => {
+    if (!user) return;
+    const collectionPath = `users/${user.uid}/patients`;
+    const patientsCollection = collection(db, collectionPath);
+    const q = query(patientsCollection);
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const patientsList = snapshot.docs.map(doc => ({
+        ...doc.data() as Omit<Patient, 'id'>,
+        id: doc.id,
+      }));
+      setPatients(patientsList);
+    });
+
+    return () => unsubscribe();
+    
+  }, [user]); // Se vuelve a ejecutar si el usuario cambia
+  
 
   const todayReminders = patients.flatMap((patient) =>
-    patient.medications.map((med) => ({
+    (patient.medications || []).map((med) => ({ // Añadimos '|| []' por si acaso
       ...med,
       patient: {
         id: patient.id,
@@ -153,6 +122,7 @@ export default function App() {
     })),
   );
 
+  // NOTA: upcomingReminders sigue siendo falso/hard-coded.
   const upcomingReminders = [
     {
       medication: "Omeprazol 20mg",
@@ -178,7 +148,8 @@ export default function App() {
     setCurrentView("home");
   };
 
-  const handleAddMedication = (
+  // --- CAMBIO GRANDE: 'handleAddMedication' AHORA GUARDA EN FIRESTORE ---
+  const handleAddMedication = async (
     patientId: string,
     medication: {
       medication: string;
@@ -188,42 +159,55 @@ export default function App() {
       instructions?: string;
     },
   ) => {
-    setPatients((prevPatients) =>
-      prevPatients.map((patient) =>
-        patient.id === patientId
-          ? {
-              ...patient,
-              medications: [...patient.medications, medication],
-            }
-          : patient,
-      ),
-    );
+    if (!user) {
+      console.error("No hay usuario autenticado para añadir medicación.");
+      return;
+    }
+
+    // Creamos la referencia al documento del paciente específico
+    const patientDocRef = doc(db, "users", user.uid, "patients", patientId);
+
+    try {
+      // Usamos 'updateDoc' y 'arrayUnion' para añadir la nueva medicación
+      // al array 'medications' de ese paciente.
+      await updateDoc(patientDocRef, {
+        medications: arrayUnion({
+          ...medication,
+          instructions: medication.instructions || "", // Aseguramos que 'instructions' exista
+        })
+      });
+      console.log("Medicación añadida a Firestore");
+
+      // ¡NO NECESITAMOS setPatients()!
+      // El 'onSnapshot' de arriba detectará este cambio en el documento
+      // del paciente y actualizará la lista de pacientes automáticamente.
+
+    } catch (e) {
+      console.error("Error al añadir medicación a Firestore: ", e);
+    }
   };
 
-  const handleAddPatient = (patient: {
-    name: string;
-    room: string;
-    condition: string;
-    age: number;
-    admissionDate: string;
-    avatar: string;
-    vitals: {
-      heartRate: string;
-      temperature: string;
-      bloodPressure: string;
-      lastUpdate: string;
-    };
-    medications: any[];
-    notes: string;
-  }) => {
-    const newPatient = {
-      ...patient,
-      id: (patients.length + 1).toString(),
-    };
-    setPatients((prevPatients) => [
-      ...prevPatients,
-      newPatient,
-    ]);
+  // --- 'handleAddPatient' (YA ESTÁ CONECTADO A FIRESTORE) ---
+  const handleAddPatient = async (patientData: Omit<Patient, 'id'>) => {
+    if (!user) {
+      console.error("No hay usuario autenticado para añadir paciente.");
+      return;
+    }
+
+    try {
+      // Asegurémonos de que el nuevo paciente tenga un array de 'medications'
+      const newPatientData = {
+        ...patientData,
+        medications: [], // <-- Inicia el array de medicaciones vacío
+      };
+
+      const collectionPath = `users/${user.uid}/patients`;
+      const docRef = await addDoc(collection(db, collectionPath), newPatientData);
+      console.log("Paciente guardado en Firestore con ID: ", docRef.id);
+      
+    } catch (e) {
+      console.error("Error al añadir paciente a Firestore: ", e);
+    }
   };
 
   // Render different views based on currentView
@@ -343,7 +327,7 @@ export default function App() {
                 size="icon"
                 className="rounded-full"
               >
-                <User size={20} />
+                <UserIcon size={20} />
               </Button>
             </div>
           </div>
@@ -459,7 +443,7 @@ export default function App() {
           <CardContent className="p-4">
             <div className="flex items-start space-x-3">
               <ImageWithFallback
-                src="https://images.unsplash.com/photo-1668417421159-e6dacfad76a7?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtZWRpY2FsJTIwcGlsbHMlMjBoZWFsdGhjYXJlfGVufDF8fHx8MTc1OTM0NzM1Nnww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
+                src="https://images.unsplash.com/photo-1668417421159-e6dacfad76a7?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtZWRpY2FsJTIwcGlsbHMlMjBoZWFsdGhjYXJlfGVufDF8fHx8MTc1OTM0NzM1Nnww&ixlib.rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
                 alt="Alerta de cuidado"
                 className="w-12 h-12 rounded-lg object-cover"
               />
@@ -499,5 +483,45 @@ export default function App() {
       {/* Toast Notifications */}
       <Toaster />
     </div>
+  );
+}
+// =================================================================
+// --- FIN DE TU APP 'CareControlApp' ---
+// =================================================================
+
+
+// =================================================================
+// --- NUEVO COMPONENTE "APP" QUE MANEJA EL LOGIN ---
+// =================================================================
+export default function App() {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true); // Para mostrar "Cargando..."
+
+  useEffect(() => {
+    // onAuthStateChanged es el "detector" de Firebase.
+    // Se ejecuta cada vez que el usuario inicia o cierra sesión.
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+      setLoading(false);
+    });
+
+    // Se limpia el detector cuando el componente se desmonta
+    return () => unsubscribe();
+  }, []);
+
+  if (loading) {
+    // Puedes reemplazar esto con un componente "Spinner" o "Logo"
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        Cargando...
+      </div>
+    );
+  }
+
+  // Si hay un usuario, muestra la app. Si no, muestra el Login.
+  return (
+    <>
+      {currentUser ? <CareControlApp user={currentUser} /> : <Login />}
+    </>
   );
 }
