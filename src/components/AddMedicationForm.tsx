@@ -6,7 +6,7 @@ import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Textarea } from "./ui/textarea";
 import { Pill, Clock } from "lucide-react";
-import { toast } from "sonner@2.0.3";
+import { toast } from "sonner";
 
 interface Patient {
   id: string;
@@ -163,25 +163,26 @@ export function AddMedicationForm({
           {/* Patient Selection */}
           <div className="space-y-2">
             <Label htmlFor="patient">Paciente *</Label>
+            
             <Select
-              value={formData.patientId}
-              onValueChange={(value) => handleChange("patientId", value)}
-              disabled={!!selectedPatientId}
-            >
-              <SelectTrigger className={errors.patientId ? "border-red-500" : ""}>
-                <SelectValue placeholder="Seleccionar paciente" />
-              </SelectTrigger>
-              <SelectContent>
-                {patients.map((patient) => (
-                  <SelectItem key={patient.id} value={patient.id}>
-                    {patient.name} - Hab. {patient.room}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {errors.patientId && (
-              <p className="text-sm text-red-500">{errors.patientId}</p>
-            )}
+                value={formData.patientId}
+                onValueChange={(value: string) => handleChange("patientId", value)}
+                disabled={!!selectedPatientId}
+              >
+                <SelectTrigger className={errors.patientId ? "border-red-500" : ""}>
+                  <SelectValue placeholder="Seleccionar paciente" />
+                </SelectTrigger>
+                <SelectContent>
+                  {patients.map((patient) => (
+                    <SelectItem key={patient.id} value={patient.id}>
+                      {patient.name} - Hab. {patient.room}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {errors.patientId && (
+                <p className="text-sm text-red-500">{errors.patientId}</p>
+              )}
           </div>
 
           {/* Medication Name */}

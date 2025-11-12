@@ -1,13 +1,13 @@
-import { useState } from 'react';
-import { auth } from '../firebaseConfig'; // <-- Importamos tu auth
+import { useState } from "react";
+import { auth } from "../firebaseConfig"; // <-- Importamos tu auth
 import {
   createUserWithEmailAndPassword,
-  signInWithEmailAndPassword
+  signInWithEmailAndPassword,
 } from "firebase/auth";
 
 export function Login() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   // --- FUNCIÓN PARA REGISTRAR UN NUEVO USUARIO ---
@@ -20,7 +20,7 @@ export function Login() {
         email,
         password
       );
-      console.log('¡Usuario registrado!', userCredential.user);
+      console.log("¡Usuario registrado!", userCredential.user);
     } catch (err: any) {
       console.error(err);
       setError(err.message);
@@ -37,52 +37,70 @@ export function Login() {
         email,
         password
       );
-      console.log('¡Usuario ha iniciado sesión!', userCredential.user);
+      console.log("¡Usuario ha iniciado sesión!", userCredential.user);
     } catch (err: any) {
       console.error(err);
       setError(err.message);
     }
   };
 
+  //./src/components/img/logo.png
+
   return (
-    <div style={{ padding: '20px', maxWidth: '400px', margin: '50px auto' }}>
-      <h2>Iniciar Sesión / Registrarse</h2>
-      <form style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="Correo electrónico"
-          style={{ padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="w-full max-w-md bg-white p-8 rounded-xl shadow-lg">
+        {/* Logo */}
+        <img
+          src="./src/components/img/logo.png"
+          alt="Logo Medilab"
+          className="mx-auto mb-8"
         />
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Contraseña (mín. 6 caracteres)"
-          style={{ padding: '8px', border: '1px solid #ccc', borderRadius: '4px' }}
-        />
-        
-        {/* Mostramos cualquier error de Firebase */}
-        {error && <p style={{ color: 'red' }}>{error}</p>}
-        
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button 
-            type="submit" 
-            onClick={handleSignIn}
-            style={{ padding: '10px', backgroundColor: '#007bff', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', flex: 1 }}
-          >
-            Iniciar Sesión
-          </button>
-          <button 
-            type="submit" 
-            onClick={handleSignUp}
-            style={{ padding: '10px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', flex: 1 }}
-          >
-            Registrarse
-          </button>
-        </div>
-      </form>
+
+        {/* Formulario */}
+        <form className="flex flex-col gap-4">
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Correo electrónico"
+            className="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Contraseña (mín. 6 caracteres)"
+            className="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+
+          {/* Error de Firebase */}
+          {error && <p className="text-red-500 text-sm">{error}</p>}
+
+          {/* Botones */}
+          <div className="flex gap-4 mt-2">
+            <button
+              type="submit"
+              onClick={handleSignIn}
+              className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-md transition-colors duration-200"
+            >
+              Iniciar Sesión
+            </button>
+            <button
+              type="submit"
+              onClick={handleSignUp}
+              className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 active:bg-green-800 text-white rounded-md transition-colors duration-200"
+            >
+              Registrarse
+            </button>
+          </div>
+        </form>
+
+        {/* Pie de página */}
+        <p className="text-center text-sm text-gray-500 mt-6">
+          © 2024 CareControl. Sistema diseñado para enfermeros y cuidadores
+          profesionales.
+        </p>
+      </div>
     </div>
   );
 }

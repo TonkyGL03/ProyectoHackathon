@@ -5,8 +5,8 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Textarea } from "./ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { toast } from "sonner@2.0.3";
-import { User, Home, Activity, Calendar } from "lucide-react";
+import { toast } from "sonner";
+import { User, Home, Activity } from "lucide-react";
 
 interface AddPatientFormProps {
   isOpen: boolean;
@@ -105,7 +105,7 @@ export function AddPatientForm({ isOpen, onClose, onAddPatient }: AddPatientForm
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && handleCancel()}>
+    <Dialog open={isOpen} onOpenChange={(open: boolean) => !open && handleCancel()}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center space-x-2">
