@@ -23,11 +23,9 @@ import { AddPatientForm } from "./components/AddPatientForm";
 import { HistoryView } from "./components/HistoryView";
 import { ScheduleView } from "./components/ScheduleView";
 import { SettingsView } from "./components/SettingsView";
-import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
 import { Button } from "./components/ui/button";
 import { Badge } from "./components/ui/badge";
 import {
-  Bell,
   User as UserIcon,
   Calendar,
   ChevronRight,
@@ -103,22 +101,6 @@ function CareControlApp({ user }: { user: User }) {
       },
     }))
   );
-
-  // NOTA: upcomingReminders sigue siendo falso/hard-coded.
-  const upcomingReminders = [
-    {
-      medication: "Omeprazol 20mg",
-      time: "Mañana 07:30",
-      dosage: "1 cápsula",
-      patient: "Daniel",
-    },
-    {
-      medication: "Insulina",
-      time: "Mañana 08:00",
-      dosage: "10 UI",
-      patient: "Daniel",
-    },
-  ];
 
   const handlePatientClick = (patientId: string) => {
     setSelectedPatient(patientId);
@@ -377,41 +359,6 @@ function CareControlApp({ user }: { user: User }) {
               />
             ))}
           </div>
-        </div>
-
-        {/* Upcoming Reminders */}
-        <div>
-          <h2 className="mb-4">Próximos Recordatorios</h2>
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Mañana</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {upcomingReminders.map((reminder, index) => (
-                <div
-                  key={index}
-                  className="flex items-center justify-between py-2 border-b border-gray-100 last:border-b-0"
-                >
-                  <div className="flex items-center space-x-3">
-                    <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                      <Bell size={14} className="text-blue-600" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-foreground">
-                        {reminder.medication}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {reminder.dosage} • {reminder.patient}
-                      </p>
-                    </div>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {reminder.time}
-                  </p>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
         </div>
       </div>
 

@@ -2,6 +2,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
+import { getFunctions, httpsCallable } from "firebase/functions";
+import { app } from "../firebaseConfig";
 import {
   ArrowLeft,
   Heart,
@@ -13,8 +15,20 @@ import {
   CheckCircle,
   Plus,
 } from "lucide-react";
-import { deleteDoc, doc, getDoc } from "firebase/firestore";
-import { db } from "@/firebaseConfig";
+
+// Inicializar Cloud Functions
+const functionsInstance = getFunctions(app);
+
+// Cloud Functions definidas en el backend
+const eliminarMedicamentoCallable = httpsCallable(
+  functionsInstance,
+  "eliminarMedicamentoServer"
+);
+
+const darDeBajaPacienteCallable = httpsCallable(
+  functionsInstance,
+  "darDeBajaPacienteServer"
+);
 
 interface Patient {
   id: string;
@@ -64,34 +78,75 @@ export function PatientDetail({
     }
   };
 
-  async function eliminarPaciente(patientId: string, onBack: () => void) {
-    const confirmar = confirm(
+  interface DeletionData {
+    userId: string;
+    patientId: string;
+    medicationId: string;
+  }
+
+  interface ResultResponse {
+    success: boolean;
+    message: string;
+  }
+
+  // 🩺 Eliminar Medicamento
+  async function eliminarMedicamento(data: DeletionData): Promise<void> {
+    const confirmar = window.confirm(
+      "¿Seguro que deseas eliminar este medicamento?"
+    );
+    if (!confirmar) return;
+
+    try {
+      console.log(
+        `💊 Llamando a la función de servidor para eliminar ${data.medicationId}...`
+      );
+
+      const result = await eliminarMedicamentoCallable(data);
+      const responseData = result.data as ResultResponse;
+
+      if (responseData.success) {
+        console.log("✅ Eliminación confirmada:", responseData.message);
+        window.alert(responseData.message);
+      } else {
+        throw new Error(
+          responseData.message || "Error desconocido al eliminar medicamento."
+        );
+      }
+    } catch (error: any) {
+      console.error("🔥 Error al eliminar medicamento:", error);
+      window.alert(`❌ No se pudo eliminar: ${error.message}`);
+    }
+  }
+
+  // 🧾 Dar de Baja al Paciente
+  async function darDeBajaPaciente(patientId: string): Promise<void> {
+    const confirmar = window.confirm(
       "¿Seguro que deseas dar de baja a este paciente?"
     );
     if (!confirmar) return;
 
     try {
-      console.log("🩺 Intentando eliminar paciente con ID:", patientId);
+      console.log(`🧾 Dando de baja al paciente ${patientId}...`);
 
-      // 1️⃣ Verificar que el ID exista antes de eliminar
-      const ref = doc(db, "patients", patientId);
-      const snap = await getDoc(ref);
+      const result = await darDeBajaPacienteCallable({
+        userId: "currentUserId", // Reemplazar con el ID real del usuario autenticado
+        patientId,
+      });
 
-      if (!snap.exists()) {
-        alert("❌ No se encontró el paciente en la base de datos.");
-        console.error("Documento no encontrado con ID:", patientId);
-        return;
+      const responseData = result.data as ResultResponse;
+
+      if (responseData.success) {
+        console.log("✅ Paciente dado de baja:", responseData.message);
+        window.alert(responseData.message);
+        onBack(); // Regresa al listado de pacientes
+      } else {
+        throw new Error(
+          responseData.message || "Error al dar de baja al paciente."
+        );
       }
-
-      // 2️⃣ Eliminar el documento
-      await deleteDoc(ref);
-      console.log("✅ Documento eliminado correctamente:", patientId);
-
-      alert("✅ Paciente dado de baja correctamente.");
-      onBack(); // volver a la pantalla anterior
     } catch (error: any) {
-      console.error("🔥 Error al eliminar paciente:", error);
-      alert(`❌ No se pudo eliminar al paciente: ${error.message}`);
+      console.error("🔥 Error al dar de baja al paciente:", error);
+      window.alert(`❌ No se pudo dar de baja: ${error.message}`);
     }
   }
 
@@ -303,9 +358,20 @@ export function PatientDetail({
                         {med.time}
                       </div>
 
-                      <div>
-                        <button>Eliminar</button>
-                      </div>
+                      {/* Delete Medication Button */}
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() =>
+                          eliminarMedicamento({
+                            userId: "currentUserId", // Reemplazar con el ID real
+                            patientId: patient.id,
+                            medicationId: `medicationId-${index}`, // Reemplazar con el ID real
+                          })
+                        }
+                      >
+                        <AlertTriangle className="text-red-600" size={16} />
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -324,12 +390,12 @@ export function PatientDetail({
           </CardContent>
         </Card>
 
-        {/*Dar Paciente de Baja*/}
+        {/* Dar de Baja al Paciente */}
         <div className="text-center mt-6">
           <Button
             variant="destructive"
             className="w-full max-w-xs mx-auto"
-            onClick={() => eliminarPaciente(patient.id, onBack)}
+            onClick={() => darDeBajaPaciente(patient.id)}
           >
             Dar de Baja al Paciente
           </Button>
