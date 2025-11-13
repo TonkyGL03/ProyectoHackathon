@@ -1,19 +1,28 @@
+// src/App.tsx
+
 // --- IMPORTACIONES DE REACT Y FIREBASE ---
 import { useState, useEffect } from "react";
-import { auth, db } from "./firebaseConfig"; // Importamos auth Y db
-import { onAuthStateChanged, signOut, User } from "firebase/auth"; // Importamos el "detector"
-import { Login } from "./components/Login"; // Importamos el nuevo componente Login
+import { auth, db } from "./firebaseConfig";
+import { onAuthStateChanged, signOut, User } from "firebase/auth";
+import { Login } from "./components/Login";
 import {
   collection,
   addDoc,
   query,
   onSnapshot,
-  doc, // <--- 1. NUEVA IMPORTACIÓN
-  updateDoc, // <--- 2. NUEVA IMPORTACIÓN
-  arrayUnion, // <--- 3. NUEVA IMPORTACIÓN
+  doc,
+  updateDoc,
+  arrayUnion,
+  deleteDoc,
+  // === ADICIONES PARA EL RESET DIARIO ===
+  getDoc,
+  getDocs,
+  writeBatch,
+  setDoc,
+  DocumentData,
 } from "firebase/firestore";
 
-// --- IMPORTACIONES ORIGINALES DE TU APP ---
+// --- IMPORTACIONES DE COMPONENTES ---
 import { ReminderCard } from "./components/ReminderCard";
 import { QuickActions } from "./components/QuickActions";
 import { TodayStats } from "./components/TodayStats";
@@ -23,6 +32,7 @@ import { AddPatientForm } from "./components/AddPatientForm";
 import { HistoryView } from "./components/HistoryView";
 import { ScheduleView } from "./components/ScheduleView";
 import { SettingsView } from "./components/SettingsView";
+import { Card, CardContent, CardHeader, CardTitle } from "./components/ui/card";
 import { Button } from "./components/ui/button";
 import { Badge } from "./components/ui/badge";
 import {
@@ -33,31 +43,44 @@ import {
   Plus,
   UserPlus,
   LogOut,
+  Pill,
+  Clock,
 } from "lucide-react";
 import { Toaster } from "./components/ui/sonner";
 import { toast } from "sonner";
 
-// --- TIPO DE VISTA (DE TU CÓDIGO) ---
-type ViewType = "home" | "patient" | "history" | "schedule" | "settings";
+// =================================================================
+// --- TIPOS DE DATOS LOCALES (DEBEN SER IDÉNTICOS A PatientDetail.tsx) ---
+// =================================================================
 
-// --- TIPO PARA PACIENTE (BASADO EN TUS DATOS) ---
-type Patient = {
-  id: string; // Firestore nos da el ID
+export interface Medication {
+  id: string;
+  medication: string;
+  time: string;
+  dosage: string;
+  type: "taken" | "pending" | "overdue";
+  instructions?: string;
+}
+
+export interface Patient {
+  id: string;
   name: string;
   room: string;
+  avatar?: string;
   condition: string;
   age: number;
   admissionDate: string;
-  avatar: string;
   vitals: {
     heartRate: string;
     temperature: string;
     bloodPressure: string;
     lastUpdate: string;
   };
-  medications: any[]; // Puedes definir un tipo Medication[]
+  medications: Medication[];
   notes: string;
-};
+}
+
+export type ViewType = "home" | "patient" | "history" | "schedule" | "settings";
 
 // =================================================================
 // --- INICIO DE TU APP (RENOMBRADA A 'CareControlApp') ---
@@ -70,13 +93,103 @@ function CareControlApp({ user }: { user: User }) {
 
   const [patients, setPatients] = useState<Patient[]>([]);
 
-  // --- LEER PACIENTES (EN TIEMPO REAL) ---
+  // --- LEER PACIENTES (EN TIEMPO REAL) Y GESTIONAR RESET DIARIO ---
   useEffect(() => {
     if (!user) return;
-    const collectionPath = `users/${user.uid}/patients`;
-    const patientsCollection = collection(db, collectionPath);
+    const uid = user.uid;
+
+    const resetTrackerRef = doc(
+      db,
+      "users",
+      uid,
+      "settings",
+      "daily_reset_tracker"
+    );
+    const patientsCollection = collection(db, `users/${uid}/patients`);
     const q = query(patientsCollection);
 
+    // 1. FUNCIÓN DE RESET DIARIO
+    const checkAndRunDailyReset = async () => {
+      const todayString = new Date().toISOString().split("T")[0];
+      let needsReset = false;
+
+      try {
+        // A. Obtener la última fecha de reseteo
+        const trackerSnap = await getDoc(resetTrackerRef);
+        const lastResetDate = trackerSnap.exists()
+          ? trackerSnap.data().date
+          : null;
+
+        if (lastResetDate !== todayString) {
+          needsReset = true;
+          console.log(
+            `[RESET] Nuevo día detectado (${todayString}). Ejecutando reset...`
+          );
+        }
+      } catch (e) {
+        console.error(
+          "[RESET] Error al leer el tracker de reset diario. Saltando reset.",
+          e
+        );
+        return;
+      }
+
+      if (needsReset) {
+        const patientsToUpdate: {
+          id: string;
+          updatedMedications: Medication[];
+        }[] = [];
+
+        // B. Re-obtener todos los pacientes para el reset
+        const patientsSnap = await getDocs(query(patientsCollection));
+
+        patientsSnap.docs.forEach((docSnap) => {
+          const patient = { ...docSnap.data(), id: docSnap.id } as Patient;
+          let patientWasUpdated = false;
+
+          const updatedMedications = patient.medications.map((med) => {
+            // Solo resetear si estaba "taken" (administrado)
+            if (med.type === "taken") {
+              patientWasUpdated = true;
+              // Vuelve a "pending". Lógica más compleja podría usar "overdue" si la hora ya pasó.
+              return { ...med, type: "pending" as const };
+            }
+            return med;
+          });
+
+          if (patientWasUpdated) {
+            patientsToUpdate.push({
+              id: patient.id,
+              updatedMedications: updatedMedications,
+            });
+          }
+        });
+
+        // C. Ejecutar el batch de actualizaciones
+        const batch = writeBatch(db);
+
+        patientsToUpdate.forEach((p) => {
+          const patientDocRef = doc(db, "users", uid, "patients", p.id);
+          // Usamos DocumentData[] para evitar error de tipo en el array de Firestore
+          batch.update(patientDocRef, {
+            medications: p.updatedMedications as DocumentData[],
+          });
+        });
+
+        // D. Actualizar la fecha del rastreador
+        batch.set(resetTrackerRef, { date: todayString });
+
+        await batch.commit();
+        console.log(
+          `[RESET] Reseteo diario completado. ${patientsToUpdate.length} pacientes actualizados.`
+        );
+      }
+    };
+
+    // Ejecutar el chequeo de reset al montar el componente (al iniciar sesión o recargar)
+    checkAndRunDailyReset();
+
+    // 2. El listener onSnapshot existente (se ejecutará después del reset si hay cambios)
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const patientsList = snapshot.docs.map((doc) => ({
         ...(doc.data() as Omit<Patient, "id">),
@@ -86,11 +199,15 @@ function CareControlApp({ user }: { user: User }) {
     });
 
     return () => unsubscribe();
-  }, [user]); // Se vuelve a ejecutar si el usuario cambia
+  }, [user]);
+  //... El resto del componente CareControlApp y App (sin cambios)
+  // [Código omitido por ser el mismo que el anterior, excepto el bloque useEffect]
+  // =================================================================
+  // Se mantiene el resto de la lógica de CareControlApp y el export default App
+  // =================================================================
 
   const todayReminders = patients.flatMap((patient) =>
     (patient.medications || []).map((med) => ({
-      // Añadimos '|| []' por si acaso
       ...med,
       patient: {
         id: patient.id,
@@ -112,45 +229,69 @@ function CareControlApp({ user }: { user: User }) {
     setCurrentView("home");
   };
 
-  // --- CAMBIO GRANDE: 'handleAddMedication' AHORA GUARDA EN FIRESTORE ---
+  // --- HANDLER REQUERIDO: Actualiza la lista de pacientes (solo para cumplir la prop) ---
+  const handlePatientUpdate = (newPatientData: Patient) => {
+    console.log(`Paciente ${newPatientData.id} actualizado por PatientDetail.`);
+    // La actualización real del estado se maneja por onSnapshot.
+  };
+
+  // --- HANDLER REQUERIDO: Maneja la eliminación total del paciente (Dar de Baja) ---
+  const handlePatientDeleted = async () => {
+    if (!user || !selectedPatient) {
+      toast.error("Error", {
+        description: "ID de usuario o paciente no disponible.",
+      });
+      return;
+    }
+
+    try {
+      // La eliminación de la base de datos se hace en PatientDetail.tsx.
+      toast.success("Paciente dado de baja", {
+        description: `El paciente ${selectedPatient} ha sido eliminado.`,
+      });
+
+      // Vuelve a la vista principal (Home)
+      handleBackToMain();
+    } catch (e) {
+      console.error("Error al dar de baja al paciente:", e);
+      toast.error("Error al dar de baja", {
+        description: "No se pudo eliminar el paciente de la base de datos.",
+      });
+    }
+  };
+
+  // --- 'handleAddMedication' (CONECTADO A FIRESTORE) ---
   const handleAddMedication = async (
     patientId: string,
-    medication: {
-      medication: string;
-      time: string;
-      dosage: string;
-      type: "taken" | "pending" | "overdue";
-      instructions?: string;
-    }
+    medication: Omit<Medication, "id">
   ) => {
     if (!user) {
       console.error("No hay usuario autenticado para añadir medicación.");
       return;
     }
 
-    // Creamos la referencia al documento del paciente específico
+    const newMedicationWithId: Medication = {
+      ...medication,
+      id: Date.now().toString(),
+      instructions: medication.instructions || "",
+    };
+
     const patientDocRef = doc(db, "users", user.uid, "patients", patientId);
 
     try {
-      // Usamos 'updateDoc' y 'arrayUnion' para añadir la nueva medicación
-      // al array 'medications' de ese paciente.
       await updateDoc(patientDocRef, {
-        medications: arrayUnion({
-          ...medication,
-          instructions: medication.instructions || "", // Aseguramos que 'instructions' exista
-        }),
+        medications: arrayUnion(newMedicationWithId),
       });
-      console.log("Medicación añadida a Firestore");
-
-      // ¡NO NECESITAMOS setPatients()!
-      // El 'onSnapshot' de arriba detectará este cambio en el documento
-      // del paciente y actualizará la lista de pacientes automáticamente.
+      toast.success("Medicamento añadido", {
+        description: `El medicamento ${medication.medication} ha sido registrado.`,
+      });
     } catch (e) {
       console.error("Error al añadir medicación a Firestore: ", e);
+      toast.error("Error al añadir medicamento");
     }
   };
 
-  // --- 'handleAddPatient' (YA ESTÁ CONECTADO A FIRESTORE) ---
+  // --- 'handleAddPatient' (CONECTADO A FIRESTORE) ---
   const handleAddPatient = async (patientData: Omit<Patient, "id">) => {
     if (!user) {
       console.error("No hay usuario autenticado para añadir paciente.");
@@ -158,33 +299,40 @@ function CareControlApp({ user }: { user: User }) {
     }
 
     try {
-      // Asegurémonos de que el nuevo paciente tenga un array de 'medications'
       const newPatientData = {
         ...patientData,
-        medications: [], // <-- Inicia el array de medicaciones vacío
+        medications: [],
       };
 
       const collectionPath = `users/${user.uid}/patients`;
-      const docRef = await addDoc(
-        collection(db, collectionPath),
-        newPatientData
-      );
-      console.log("Paciente guardado en Firestore con ID: ", docRef.id);
+      await addDoc(collection(db, collectionPath), newPatientData);
+      toast.success("Paciente añadido", {
+        description: `El paciente ${patientData.name} ha sido registrado.`,
+      });
+      setIsAddPatientOpen(false);
     } catch (e) {
       console.error("Error al añadir paciente a Firestore: ", e);
+      toast.error("Error al añadir paciente");
     }
   };
 
   // Render different views based on currentView
   if (currentView === "patient" && selectedPatient) {
     const patient = patients.find((p) => p.id === selectedPatient);
-    if (patient) {
+    const userId = user.uid;
+
+    if (patient && userId) {
       return (
         <>
           <PatientDetail
             patient={patient}
             onBack={handleBackToMain}
             onAddMedication={() => setIsAddMedicationOpen(true)}
+            // --- 🔑 PROPS REQUERIDAS ---
+            userId={userId}
+            onPatientUpdated={handlePatientUpdate}
+            onPatientDeleted={handlePatientDeleted}
+            // ---------------------------
           />
           <AddMedicationForm
             isOpen={isAddMedicationOpen}
@@ -203,6 +351,7 @@ function CareControlApp({ user }: { user: User }) {
     }
   }
 
+  // Resto del renderizado de vistas...
   if (currentView === "history") {
     return (
       <>
@@ -240,17 +389,18 @@ function CareControlApp({ user }: { user: User }) {
   // --- FUNCIÓN PARA CERRAR SESIÓN ---
   const handleLogout = async () => {
     try {
-      await signOut(auth); // cierra sesión en Firebase
+      await signOut(auth);
       toast.info("Sesión cerrada", {
         description: "Has cerrado sesión correctamente.",
       });
-      window.location.href = "/login"; // redirige a Login.jsx
+      window.location.href = "/login";
     } catch (error) {
       console.error("Error al cerrar sesión:", error);
       toast.error("No se pudo cerrar sesión");
     }
   };
 
+  // Renderizado de la vista "home"
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -261,9 +411,8 @@ function CareControlApp({ user }: { user: User }) {
               <img
                 src={"src/components/img/logo.png"}
                 alt="Logo Medilab"
-                className="w-32 h-auto" // 'mx-auto' y 'mb-8' ya no son necesarios aquí
+                className="w-32 h-auto"
               />
-
               <div>
                 <p className="text-sm text-muted-foreground">
                   Sistema de gestión médica
@@ -296,7 +445,6 @@ function CareControlApp({ user }: { user: User }) {
               <Button variant="ghost" size="icon" className="rounded-full">
                 <UserIcon size={20} />
               </Button>
-
               <Button
                 className="bg-white text-red-600 border-red-200 hover:bg-red-100 hover:text-red-700"
                 onClick={handleLogout}
@@ -306,7 +454,6 @@ function CareControlApp({ user }: { user: User }) {
               </Button>
             </div>
           </div>
-
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-muted-foreground">Hoy es</p>
@@ -341,28 +488,87 @@ function CareControlApp({ user }: { user: User }) {
           />
         </div>
 
-        {/* Today's Reminders */}
+        {/* Lista de Pacientes y Medicamentos Pendientes */}
         <div>
           <div className="flex items-center justify-between mb-4">
-            <h2>Recordatorios de Hoy</h2>
+            <h2>Lista de Pacientes</h2>
             <Button variant="ghost" size="sm" className="text-blue-600">
               Ver todos
               <ChevronRight size={16} className="ml-1" />
             </Button>
           </div>
           <div className="space-y-3">
-            {todayReminders.map((reminder, index) => (
-              <ReminderCard
-                key={index}
-                {...reminder}
-                onClick={() => handlePatientClick(reminder.patient.id)}
-              />
-            ))}
+            {patients.map((patient) => {
+              const pendingMedications = patient.medications
+                .filter((m) => m.type === "pending")
+                .sort((a, b) => a.time.localeCompare(b.time));
+
+              const medicationCount = pendingMedications.length;
+
+              return (
+                <Card
+                  key={patient.id}
+                  onClick={() => handlePatientClick(patient.id)}
+                  className="cursor-pointer hover:shadow-lg transition-shadow"
+                >
+                  <CardHeader className="p-3 pb-0">
+                    <CardTitle className="text-sm flex items-center justify-between">
+                      <span>{patient.name}</span>
+                      <Badge
+                        className={`mt-0 ${
+                          patient.condition.toLowerCase() === "estable"
+                            ? "bg-green-100 text-green-800"
+                            : "bg-red-100 text-red-800"
+                        }`}
+                      >
+                        {patient.condition}
+                      </Badge>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-3 pt-1">
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Habitación: {patient.room} | Pendientes: **
+                      {medicationCount}**
+                    </p>
+
+                    {medicationCount > 0 && (
+                      <div className="space-y-1">
+                        {pendingMedications.slice(0, 3).map((med, idx) => (
+                          <div
+                            key={idx}
+                            className="flex items-center text-xs bg-yellow-50 text-yellow-800 p-2 rounded"
+                          >
+                            <Pill size={12} className="mr-1 flex-shrink-0" />
+                            <span className="font-medium mr-2 truncate">
+                              {med.medication}
+                            </span>
+                            <span className="text-muted-foreground ml-auto flex items-center">
+                              <Clock size={10} className="mr-1" />
+                              {med.time}
+                            </span>
+                          </div>
+                        ))}
+                        {medicationCount > 3 && (
+                          <p className="text-xs text-muted-foreground mt-1 text-center">
+                            y **{medicationCount - 3}** más pendientes...
+                          </p>
+                        )}
+                      </div>
+                    )}
+                    {medicationCount === 0 && (
+                      <p className="text-xs text-green-600 text-center p-2 rounded border border-green-200 bg-green-50">
+                        ✅ No hay medicamentos pendientes
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         </div>
       </div>
 
-      {/* Add Medication Form */}
+      {/* Modals */}
       <AddMedicationForm
         isOpen={isAddMedicationOpen}
         onClose={() => setIsAddMedicationOpen(false)}
@@ -373,8 +579,6 @@ function CareControlApp({ user }: { user: User }) {
         }))}
         onAddMedication={handleAddMedication}
       />
-
-      {/* Add Patient Form */}
       <AddPatientForm
         isOpen={isAddPatientOpen}
         onClose={() => setIsAddPatientOpen(false)}
@@ -386,31 +590,24 @@ function CareControlApp({ user }: { user: User }) {
     </div>
   );
 }
-// =================================================================
-// --- FIN DE TU APP 'CareControlApp' ---
-// =================================================================
 
 // =================================================================
-// --- NUEVO COMPONENTE "APP" QUE MANEJA EL LOGIN ---
+// --- COMPONENTE "APP" QUE MANEJA EL LOGIN ---
 // =================================================================
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true); // Para mostrar "Cargando..."
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // onAuthStateChanged es el "detector" de Firebase.
-    // Se ejecuta cada vez que el usuario inicia o cierra sesión.
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setCurrentUser(user);
       setLoading(false);
     });
 
-    // Se limpia el detector cuando el componente se desmonta
     return () => unsubscribe();
   }, []);
 
   if (loading) {
-    // Puedes reemplazar esto con un componente "Spinner" o "Logo"
     return (
       <div
         style={{
@@ -425,6 +622,6 @@ export default function App() {
     );
   }
 
-  // Si hay un usuario, muestra la app. Si no, muestra el Login.
+  // Si hay un usuario, muestra CareControlApp. Si no, muestra el Login.
   return <>{currentUser ? <CareControlApp user={currentUser} /> : <Login />}</>;
 }
