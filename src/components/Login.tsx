@@ -45,13 +45,17 @@ export function Login() {
   };
 
   //./src/components/img/logo.png
+  // Para que funcione correctamente el logo en la app web y movil, cambie el logo a:
+  // /public/img/logo.png
+  // Como public es la raiz del proyecto, entonces quedaria asi:
+  // /img/logo.png
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="w-full max-w-md bg-white p-8 rounded-xl shadow-lg">
         {/* Logo */}
         <img
-          src="./src/components/img/logo.png"
+          src="/img/logo.png"
           alt="Logo Medilab"
           className="mx-auto mb-8"
         />

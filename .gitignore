@@ -1,1 +1,34 @@
+# --- Secretos ---
+# Ignora el archivo de variables de entorno locales (¡MUY IMPORTANTE!)
 .env.local
+
+# --- Dependencias ---
+# Ignora la carpeta de paquetes de Node (se regenera con 'npm install')
+/node_modules
+
+# --- Salida de Compilación (Build) ---
+# Ignora la carpeta de la app web compilada (¡contiene llaves!)
+/build
+/dist
+
+# --- Capacitor ---
+# Ignora las carpetas de compilación nativa
+/android/app/build/
+/android/capacitor-cordova-android-plugins/
+/ios/App/build/
+
+# --- Logs ---
+# Ignora logs de errores de npm y yarn
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Editor / IDE ---
+# Ignora configuraciones del editor (VS Code, etc.)
+.vscode/
+.idea/
+
+# --- Sistema Operativo ---
+# Ignora archivos basura de macOS y Windows
+.DS_Store
+Thumbs.db
